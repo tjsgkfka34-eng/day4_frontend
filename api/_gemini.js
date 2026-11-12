@@ -59,7 +59,7 @@ async function tryModel(model, body, attempts, deadline) {
 }
 
 async function gemini(body, deadline = Date.now() + 45000) {
-  const primary = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+  const primary = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
   let last, first;
   try { return await tryModel(primary, body, 2, deadline); } catch (e) { first = last = e; if (e.deadline) throw timeoutErr(); if (!RETRYABLE.has(e.status) && e.status !== 404) throw e; }
   const fallbacks = [];

@@ -23,6 +23,6 @@ module.exports = async (req, res) => {
         return { model: n, ok: r.ok, status: r.status, ms: Date.now() - t, note: r.ok ? undefined : ((j.error && j.error.message) || "").slice(0, 120) };
       } catch (e) { return { model: n, ok: false, status: 0, ms: Date.now() - t, note: e.name === "TimeoutError" ? "12초 안에 응답 없음" : String(e.message) }; }
     }));
-    res.json({ configured_model: process.env.GEMINI_MODEL || "(미설정: 기본 gemini-3.8-flash)", results });
+    res.json({ configured_model: process.env.GEMINI_MODEL || "(미설정: 기본 gemini-3.1-flash-lite)", results });
   } catch (e) { res.status(502).json({ error: String(e.message || e) }); }
 };
