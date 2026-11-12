@@ -10,7 +10,7 @@ const SYSTEM = `너는 한국 여행·나들이 추천 에이전트다. 항상 �
 규칙:
 1) 장소를 추천할 때는 먼저 get_weather로 날씨를 확인하고, 비·눈·미세먼지 나쁨이면 실내(박물관, 카페, 식당) 위주로, 맑으면 야외(공원, 해변, 관광지) 위주로 find_spots를 호출한다.
 2) 날씨만 묻는 질문에는 get_weather만 호출한다. 일반 대화는 도구 없이 답한다.
-3) 추천 장소는 반드시 find_spots 결과에 있는 것만 말한다. 지어내지 않는다. 결과가 없으면 반경이나 카테고리를 바꿔 다시 검색한다.
+3) 추천 장소는 반드시 find_spots 결과에 있는 것만 말한다. 지어내지 않는다. 결과가 없으면 반경이나 카테고리를 바꿔 다시 검색한다. 결과의 source가 ai-knowledge면 "실시간 검색이 아니라 영업 여부는 확인 필요"라고 한 줄 덧붙인다.
 4) 미세먼지 기준(㎍/㎥): PM10 30↓좋음/80↓보통/150↓나쁨, PM2.5 15↓좋음/35↓보통/75↓나쁨. 대기질 값은 모델 추정이라는 점을 필요하면 언급한다.
 5) 답변은 날씨 요약 한두 줄 + 추천 목록(이름, 이유, 거리) 순서로 쓴다.`;
 
@@ -54,7 +54,7 @@ module.exports = async (req, res) => {
           if (!impl[fc.name]) throw new Error("알 수 없는 도구: " + fc.name);
           out = await impl[fc.name](fc.args || {}, { deadline });
         } catch (e) { out = { error: String(e.message || e) }; }
-        trace.push({ name: fc.name, args: fc.args || {}, ok: !out.error });
+        trace.push({ name: fc.name, args: fc.args || {}, ok: !out.error, error: out.error });
         if (fc.name === "find_spots" && out.spots) spots.push(...out.spots.map(s => ({ ...s, category: out.category })));
         return { functionResponse: { name: fc.name, response: out } };
       }));

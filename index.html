@@ -350,7 +350,8 @@ function addMsg(cls,text,trace){
   if(trace&&trace.length){
     const tl=document.createElement("div"); tl.className="tools";
     trace.forEach(t=>{ const x=document.createElement("span"); x.className="tool"+(t.ok?"":" fail");
-      x.textContent=(t.ok?"🔧 ":"⚠️ ")+t.name+"("+Object.values(t.args).join(", ")+")"; tl.appendChild(x); });
+      x.textContent=(t.ok?"🔧 ":"⚠️ ")+t.name+"("+Object.values(t.args).join(", ")+")"; if(t.error) x.title=t.error; tl.appendChild(x); });
+    const errs=trace.filter(t=>t.error); if(errs.length){ const e=document.createElement("div"); e.style.cssText="width:100%;font-size:.72rem;color:#fca5a5"; e.textContent="오류: "+errs[errs.length-1].error; tl.appendChild(e); }
     d.appendChild(tl);
   }
   d.appendChild(document.createTextNode(text)); log.appendChild(d); log.scrollTop=log.scrollHeight; return d;
