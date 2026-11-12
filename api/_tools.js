@@ -91,8 +91,14 @@ const CATEGORY = {
 async function spotsKakao(g, cat, rad, n) {
   const q = new URLSearchParams({ query: `${g.keyword} ${cat.query}`, x: g.lon, y: g.lat, radius: rad, size: Math.min(n * 2, 15) });
   if (cat.code) q.set("category_group_code", cat.code);
-  const d = await jget("https://dapi.kakao.com/v2/local/search/keyword.json?" + q,
-    { headers: { Authorization: "KakaoAK " + process.env.KAKAO_REST_API_KEY } });
+  const kr = await fetch("https://dapi.kakao.com/v2/local/search/keyword.json?" + q,
+    { headers: { Authorization: "KakaoAK " + process.env.KAKAO_REST_API_KEY }, signal: AbortSignal.timeout(12000) });
+  const d = await kr.json().catch(() => ({}));
+  if (!kr.ok) {
+    const hint = kr.status === 401 ? "REST API 키가 올바른지 확인하세요."
+      : kr.status === 403 ? "카카오맵 서비스 활성화(ON) 여부와 키의 IP/도메인 제한을 확인하세요." : "";
+    throw new Error(`카카오 ${kr.status} ${d.errorType || ""} ${d.message || ""} ${hint}`.replace(/\s+/g, " ").trim());
+  }
   return (d.documents || []).slice(0, n).map(p => ({
     name: p.place_name, lat: Number(p.y), lon: Number(p.x), distance_m: Number(p.distance) || undefined,
     info: [p.category_name, p.road_address_name || p.address_name].filter(Boolean).join(" · "), url: p.place_url,
