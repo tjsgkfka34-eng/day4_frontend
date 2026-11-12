@@ -27,6 +27,7 @@
   .mk b { padding:2px 6px; border-radius:10px; color:#0f172a; font-size:12px; box-shadow:0 1px 4px #0006; }
   .mk i { font-style:normal; font-size:18px; }
   .mk span { color:#0f172a; text-shadow:0 0 3px #fff,0 0 3px #fff; }
+  #map.lo .mk.minor { display:none; }
   #map.lo .mk span, #map.lo .mk i { display:none; }
   .modes { display:flex; gap:8px; margin-bottom:8px; }
   .modes button { flex:1; background:var(--card); color:var(--text); border:1px solid #334155; font-weight:600; }
@@ -259,11 +260,12 @@ function tempColor(t){
   if(t<25) return "#fde047"; if(t<30) return "#fdba74"; return "#fca5a5";
 }
 let map, markers=[];
-const HALF=0.035; // 기둥 한 변의 절반(도)
+const HALF=0.02;
+const MAJOR=new Set(['서울','부산','인천','대구','대전','광주','울산','제주','강릉','전주','춘천','울릉']); // 기둥 한 변의 절반(도)
 function initMap(){
   if(typeof maplibregl==="undefined"){ $("map").innerHTML='<div class="msg err">지도 라이브러리를 불러오지 못했습니다.</div>'; return false; }
   map = new maplibregl.Map({
-    container:"map", center:[127.9,36.2], zoom:6.3, pitch:58, bearing:-12, maxPitch:80, minZoom:5, maxZoom:12,
+    container:"map", center:[127.9,36.2], zoom:6.3, pitch:40, bearing:0, maxPitch:80, minZoom:5, maxZoom:12,
     style:{ version:8,
       sources:{
         sat:{type:"raster",tileSize:256,maxzoom:17,attribution:"Tiles © Esri",
@@ -273,13 +275,13 @@ function initMap(){
         cols:{type:"geojson",data:{type:"FeatureCollection",features:[]}}
       },
       layers:[
-        {id:"sat",type:"raster",source:"sat",paint:{"raster-saturation":-0.35,"raster-brightness-max":0.75}},
-        {id:"hill",type:"hillshade",source:"dem",paint:{"hillshade-exaggeration":0.5}},
+        {id:"sat",type:"raster",source:"sat",paint:{"raster-saturation":-0.7,"raster-brightness-min":0.25,"raster-brightness-max":0.85}},
+        {id:"hill",type:"hillshade",source:"dem",paint:{"hillshade-exaggeration":0.25}},
         {id:"cols",type:"fill-extrusion",source:"cols",paint:{
           "fill-extrusion-color":["get","color"],"fill-extrusion-height":["get","h"],
-          "fill-extrusion-base":0,"fill-extrusion-opacity":0.85}}
+          "fill-extrusion-base":0,"fill-extrusion-opacity":0.75}}
       ],
-      terrain:{source:"dem",exaggeration:1.8}
+      terrain:{source:"dem",exaggeration:1.2}
     }
   });
   map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),"top-right");
@@ -306,16 +308,16 @@ function drawMarkers(){
     const w=wData[i]?.current, a=aData[i]?.current;
     if(!w) return;
     let ic, val, col, h;
-    if(mode==="weather"){ ic=wmo(w.weather_code)[0]; val=Math.round(w.temperature_2m)+"°"; col=tempColor(w.temperature_2m); h=Math.max(w.temperature_2m+8,1)*2500; }
+    if(mode==="weather"){ ic=wmo(w.weather_code)[0]; val=Math.round(w.temperature_2m)+"°"; col=tempColor(w.temperature_2m); h=Math.max(w.temperature_2m+8,1)*1200; }
     else{
       const v=a?.[mode==="pm10"?"pm10":"pm2_5"], g=(mode==="pm10"?gPM10:gPM25)(v);
       ic=v!=null?`<i style="font-size:11px">${g[0]}</i>`:""; val=v==null?"-":Math.round(v); col=g[1];
-      h=Math.max(v||0,1)*(mode==="pm10"?1100:2000);
+      h=Math.max(v||0,1)*(mode==="pm10"?500:900);
     }
     feats.push({type:"Feature",properties:{i,h,color:col},geometry:{type:"Polygon",coordinates:[[
       [c.lon-HALF,c.lat-HALF],[c.lon+HALF,c.lat-HALF],[c.lon+HALF,c.lat+HALF],[c.lon-HALF,c.lat+HALF],[c.lon-HALF,c.lat-HALF]]]}});
     const el=document.createElement("div");
-    el.className="mk";
+    el.className="mk"+(MAJOR.has(c.label)?"":" minor");
     el.innerHTML=`${ic.startsWith("<")||!ic?ic:`<i>${ic}</i>`}<b style="background:${col}">${val}</b><span>${esc(c.label)}</span>`;
     el.onclick=()=>openCity(c);
     markers.push(new maplibregl.Marker({element:el,anchor:"bottom"}).setLngLat([c.lon,c.lat]).addTo(map));
