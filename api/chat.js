@@ -26,8 +26,11 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: "마지막 메시지는 user여야 합니다." });
 
   const trace = [], spots = [];
+  const t0 = Date.now();
   try {
     for (let step = 0; step < 5; step++) {
+      if (Date.now() - t0 > 40000)
+        return res.json({ reply: "응답이 너무 오래 걸려 중단했습니다. 잠시 후 다시 시도하거나 질문을 더 짧게 해 주세요.", trace, spots });
       const data = await gemini({
         systemInstruction: { parts: [{ text: SYSTEM }] },
         contents,

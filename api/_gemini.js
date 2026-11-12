@@ -9,6 +9,7 @@ async function callModel(model, body) {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(22000),            // 한 번의 호출이 멈춰도 전체가 타임아웃되지 않게
   });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
@@ -24,12 +25,13 @@ async function gemini(body) {
   if (process.env.GEMINI_FALLBACK_MODEL) models.push(process.env.GEMINI_FALLBACK_MODEL);
   let last;
   for (const model of models) {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try { return await callModel(model, body); }
       catch (e) {
         last = e;
+        if (e.name === "TimeoutError") e.status = 503;
         if (!RETRYABLE.has(e.status)) throw e;          // 키 오류·잘못된 요청은 재시도해도 소용없음
-        await sleep(800 * 2 ** attempt);                // 0.8s → 1.6s → 3.2s
+        await sleep(800 * 2 ** attempt);                // 0.8s → 1.6s
       }
     }
   }

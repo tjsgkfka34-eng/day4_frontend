@@ -374,7 +374,7 @@ $("chatform").addEventListener("submit",async e=>{
     const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:history})});
     const d=await r.json().catch(()=>({}));
     wait.remove();
-    if(!r.ok) throw new Error(d.error||("서버 오류 "+r.status+" — Vercel에 배포했거나 vercel dev로 실행해야 동작합니다."));
+    if(!r.ok) throw new Error(d.error||(r.status===404?"서버 함수(/api/chat)를 찾을 수 없습니다. Vercel 배포 주소나 vercel dev에서 실행하세요.":r.status===504?"서버 응답 시간이 초과되었습니다(AI 모델이 느림). 잠시 후 다시 시도해 주세요.":"서버 오류 "+r.status));
     addMsg("bot",d.reply,d.trace); history.push({role:"model",text:d.reply});
     if(d.spots?.length) showSpots(d.spots);
   }catch(err){
