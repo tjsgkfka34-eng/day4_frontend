@@ -26,17 +26,17 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: "마지막 메시지는 user여야 합니다." });
 
   const trace = [], spots = [];
-  const t0 = Date.now();
+  const t0 = Date.now(), deadline = t0 + 48000;
   try {
     for (let step = 0; step < 5; step++) {
-      if (Date.now() - t0 > 40000)
+      if (Date.now() > deadline - 6000)
         return res.json({ reply: "응답이 너무 오래 걸려 중단했습니다. 잠시 후 다시 시도하거나 질문을 더 짧게 해 주세요.", trace, spots });
       const data = await gemini({
         systemInstruction: { parts: [{ text: SYSTEM }] },
         contents,
         tools: [{ functionDeclarations: declarations }],
         toolConfig: { functionCallingConfig: { mode: "AUTO" } },
-      });
+      }, deadline);
       const cand = data.candidates && data.candidates[0];
       const content = cand && cand.content;
       const parts = (content && content.parts) || [];
@@ -52,7 +52,7 @@ module.exports = async (req, res) => {
         let out;
         try {
           if (!impl[fc.name]) throw new Error("알 수 없는 도구: " + fc.name);
-          out = await impl[fc.name](fc.args || {});
+          out = await impl[fc.name](fc.args || {}, { deadline });
         } catch (e) { out = { error: String(e.message || e) }; }
         trace.push({ name: fc.name, args: fc.args || {}, ok: !out.error });
         if (fc.name === "find_spots" && out.spots) spots.push(...out.spots.map(s => ({ ...s, category: out.category })));

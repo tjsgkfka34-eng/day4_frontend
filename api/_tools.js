@@ -99,20 +99,20 @@ async function spotsKakao(g, cat, rad, n) {
   }));
 }
 
-async function spotsGemini(g, cat, n) {
+async function spotsGemini(g, cat, n, deadline) {
   const data = await gemini({
     contents: [{ role: "user", parts: [{ text:
       `"${g.keyword}" 지역의 ${cat.label} 추천 장소 ${n}곳을 웹 검색으로 찾아서, 다른 말 없이 JSON 배열만 출력해라. ` +
       `형식: [{"name":"장소명","area":"동네/주소","why":"한 줄 특징"}]` }] }],
     tools: [{ googleSearch: {} }],
-  });
+  }, deadline);
   const text = ((data.candidates?.[0]?.content?.parts) || []).map(p => p.text || "").join("");
   const m = text.match(/\[[\s\S]*\]/);
   if (!m) throw new Error("검색 결과를 해석하지 못했습니다.");
   return JSON.parse(m[0]).slice(0, n).map(p => ({ name: p.name, info: [p.area, p.why].filter(Boolean).join(" · ") }));
 }
 
-async function find_spots({ location, category, radius_m, limit } = {}) {
+async function find_spots({ location, category, radius_m, limit } = {}, ctx = {}) {
   if (!location) return { error: "location(지명)이 필요합니다." };
   const cat = CATEGORY[category];
   if (!cat) return { error: "category는 " + Object.keys(CATEGORY).join(", ") + " 중 하나여야 합니다." };
@@ -122,7 +122,7 @@ async function find_spots({ location, category, radius_m, limit } = {}) {
   const rad = Math.min(Math.max(Number(radius_m) || 3000, 500), 20000);
   const n = Math.min(Math.max(Number(limit) || 6, 1), 10);
   try {
-    const spots = process.env.KAKAO_REST_API_KEY ? await spotsKakao(g, cat, rad, n) : await spotsGemini(g, cat, n);
+    const spots = process.env.KAKAO_REST_API_KEY ? await spotsKakao(g, cat, rad, n) : await spotsGemini(g, cat, n, ctx.deadline);
     return { search_center: g.name, category, source: process.env.KAKAO_REST_API_KEY ? "kakao" : "gemini-search", count: spots.length, spots };
   } catch (e) {
     return { error: "장소 검색 실패: " + (e.message || e) };
