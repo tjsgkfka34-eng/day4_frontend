@@ -27,11 +27,13 @@ async function discoverFallbacks(exclude) {
     const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=100", {
       headers: { "x-goog-api-key": process.env.GEMINI_API_KEY }, signal: AbortSignal.timeout(5000) });
     const d = await r.json();
+    // 'gemini-<버전>-flash' 또는 '-flash-lite' 형태의 일반 텍스트 모델만, 버전 높은 순으로
+    const ver = n => { const m = n.match(/^gemini-(\d+(?:\.\d+)?)-flash(-lite)?$/); return m ? parseFloat(m[1]) - (m[2] ? 0.01 : 0) : null; };
     discovered = (d.models || [])
       .filter(m => (m.supportedGenerationMethods || []).includes("generateContent"))
       .map(m => m.name.replace(/^models\//, ""))
-      .filter(n => /flash/.test(n) && !/image|tts|audio|live|embed|thinking|exp|preview-\d|robotics|computer/.test(n))
-      .sort().reverse();
+      .filter(n => ver(n) !== null)
+      .sort((x, y) => ver(y) - ver(x));
   } catch { discovered = []; }
   return discovered.filter(m => m !== exclude);
 }
@@ -53,14 +55,14 @@ async function tryModel(model, body, attempts) {
 
 async function gemini(body) {
   const primary = process.env.GEMINI_MODEL || "gemini-3.8-flash";
-  let last;
-  try { return await tryModel(primary, body, 2); } catch (e) { last = e; if (!RETRYABLE.has(e.status) && e.status !== 404) throw e; }
+  let last, first;
+  try { return await tryModel(primary, body, 2); } catch (e) { first = last = e; if (!RETRYABLE.has(e.status) && e.status !== 404) throw e; }
   const fallbacks = [];
   if (process.env.GEMINI_FALLBACK_MODEL) fallbacks.push(process.env.GEMINI_FALLBACK_MODEL);
   fallbacks.push(...(await discoverFallbacks(primary)));
-  for (const m of [...new Set(fallbacks)].slice(0, 2)) {
+  for (const m of [...new Set(fallbacks)].slice(0, 3)) {
     try { return await tryModel(m, body, 1); } catch (e) { last = e; if (!RETRYABLE.has(e.status) && e.status !== 404) throw e; }
   }
-  throw new Error("지금 AI 모델에 요청이 몰려 응답하지 못했습니다. 잠시 후 다시 시도해 주세요. (" + (last && last.message) + ")");
+  throw new Error("지금 AI 모델에 요청이 몰려 응답하지 못했습니다. 잠시 후 다시 시도해 주세요. (" + (first && first.message) + ")");
 }
 module.exports = { gemini };
