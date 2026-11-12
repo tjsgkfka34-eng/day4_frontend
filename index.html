@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>실시간 날씨 - Open-Meteo</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <style>
   :root { --bg:#0f172a; --card:#1e293b; --text:#f1f5f9; --muted:#94a3b8; --accent:#38bdf8; }
   * { box-sizing:border-box; }
@@ -22,8 +22,8 @@
   #sug li { padding:8px 10px; border-radius:8px; cursor:pointer; display:flex; justify-content:space-between; gap:8px; }
   #sug li small { color:var(--muted); }
   #sug li.on, #sug li:hover { background:#334155; }
-  #map { height:520px; border-radius:16px; margin-bottom:16px; background:var(--card); }
-  .mk { display:flex; flex-direction:column; align-items:center; transform:translate(-50%,-50%); font-size:11px; font-weight:700; line-height:1.1; white-space:nowrap; }
+  #map { height:600px; overflow:hidden; border-radius:16px; margin-bottom:16px; background:var(--card); }
+  .mk { cursor:pointer; display:flex; flex-direction:column; align-items:center; font-size:11px; font-weight:700; line-height:1.1; white-space:nowrap; }
   .mk b { padding:2px 6px; border-radius:10px; color:#0f172a; font-size:12px; box-shadow:0 1px 4px #0006; }
   .mk i { font-style:normal; font-size:18px; }
   .mk span { color:#0f172a; text-shadow:0 0 3px #fff,0 0 3px #fff; }
@@ -62,7 +62,7 @@
   <div class="cities" id="cities"></div>
   <div class="modes" id="modes"><button data-m="weather" class="on">🌡 날씨</button><button data-m="pm10">😷 미세먼지 PM10</button><button data-m="pm25">🔬 초미세 PM2.5</button></div>
   <div id="map"></div>
-  <div class="mapbar"><span id="mapinfo">전국 날씨 불러오는 중…</span><span>마커를 누르면 상세 날씨</span></div>
+  <div class="mapbar"><span id="mapinfo">전국 날씨 불러오는 중…</span><span>드래그 회전 · 우클릭 드래그 기울기 · 마커/기둥 클릭 상세</span></div>
   <div id="out"><div class="msg">도시를 검색하세요.</div></div>
 </main>
 
@@ -258,49 +258,87 @@ function tempColor(t){
   if(t<=0) return "#93c5fd"; if(t<10) return "#7dd3fc"; if(t<18) return "#86efac";
   if(t<25) return "#fde047"; if(t<30) return "#fdba74"; return "#fca5a5";
 }
-let map, layer;
+let map, markers=[];
+const HALF=0.035; // 기둥 한 변의 절반(도)
 function initMap(){
-  if(typeof L==="undefined"){ $("map").innerHTML='<div class="msg err">지도 라이브러리를 불러오지 못했습니다.</div>'; return false; }
-  map = L.map("map",{zoomControl:true}).fitBounds([[33.0,126.0],[38.6,131.9]]);
-  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",{maxZoom:12,attribution:"Tiles © Esri"}).addTo(map);
-  layer = L.layerGroup().addTo(map);
-  const zc=()=>$("map").classList.toggle("lo", map.getZoom()<8);
-  map.on("zoomend",zc); zc();
+  if(typeof maplibregl==="undefined"){ $("map").innerHTML='<div class="msg err">지도 라이브러리를 불러오지 못했습니다.</div>'; return false; }
+  map = new maplibregl.Map({
+    container:"map", center:[127.9,36.2], zoom:6.3, pitch:58, bearing:-12, maxPitch:80, minZoom:5, maxZoom:12,
+    style:{ version:8,
+      sources:{
+        sat:{type:"raster",tileSize:256,maxzoom:17,attribution:"Tiles © Esri",
+          tiles:["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"]},
+        dem:{type:"raster-dem",encoding:"terrarium",tileSize:256,maxzoom:14,attribution:"Terrain © Mapzen/AWS",
+          tiles:["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"]},
+        cols:{type:"geojson",data:{type:"FeatureCollection",features:[]}}
+      },
+      layers:[
+        {id:"sat",type:"raster",source:"sat",paint:{"raster-saturation":-0.35,"raster-brightness-max":0.75}},
+        {id:"hill",type:"hillshade",source:"dem",paint:{"hillshade-exaggeration":0.5}},
+        {id:"cols",type:"fill-extrusion",source:"cols",paint:{
+          "fill-extrusion-color":["get","color"],"fill-extrusion-height":["get","h"],
+          "fill-extrusion-base":0,"fill-extrusion-opacity":0.85}}
+      ],
+      terrain:{source:"dem",exaggeration:1.8}
+    }
+  });
+  map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),"top-right");
+  const zc=()=>$("map").classList.toggle("lo", map.getZoom()<7);
+  map.on("zoom",zc); zc();
+  map.on("click","cols",e=>{ const c=LOCAL[e.features[0].properties.i]; if(c) openCity(c); });
+  map.on("mouseenter","cols",()=>map.getCanvas().style.cursor="pointer");
+  map.on("mouseleave","cols",()=>map.getCanvas().style.cursor="");
+  map.on("load",()=>{ mapReady=true; drawMarkers(); });
   return true;
 }
+let mapReady=false;
+function openCity(c){ loadWeather(c.label+", 대한민국",c.lat,c.lon); out.scrollIntoView({behavior:"smooth"}); }
 const GRADES=[["좋음","#86efac"],["보통","#fde047"],["나쁨","#fdba74"],["매우나쁨","#fca5a5"]];
 function grade(v,cut){ if(v==null) return [ "-","#cbd5e1"]; const i=v<=cut[0]?0:v<=cut[1]?1:v<=cut[2]?2:3; return GRADES[i]; }
 const gPM10=v=>grade(v,[30,80,150]), gPM25=v=>grade(v,[15,35,75]);
 let wData=[], aData=[], mode="weather";
 
 function drawMarkers(){
-  if(!layer||!wData.length) return;
-  layer.clearLayers();
+  if(!map||!mapReady||!wData.length) return;
+  markers.forEach(m=>m.remove()); markers=[];
+  const feats=[];
   LOCAL.forEach((c,i)=>{
     const w=wData[i]?.current, a=aData[i]?.current;
     if(!w) return;
-    let ic, val, col;
-    if(mode==="weather"){ ic=wmo(w.weather_code)[0]; val=Math.round(w.temperature_2m)+"°"; col=tempColor(w.temperature_2m); }
+    let ic, val, col, h;
+    if(mode==="weather"){ ic=wmo(w.weather_code)[0]; val=Math.round(w.temperature_2m)+"°"; col=tempColor(w.temperature_2m); h=Math.max(w.temperature_2m+8,1)*2500; }
     else{
       const v=a?.[mode==="pm10"?"pm10":"pm2_5"], g=(mode==="pm10"?gPM10:gPM25)(v);
-      ic=""; val=v==null?"-":Math.round(v); col=g[1];
-      if(v!=null) ic=`<i style="font-size:11px">${g[0]}</i>`;
+      ic=v!=null?`<i style="font-size:11px">${g[0]}</i>`:""; val=v==null?"-":Math.round(v); col=g[1];
+      h=Math.max(v||0,1)*(mode==="pm10"?1100:2000);
     }
-    const m=L.marker([c.lat,c.lon],{icon:L.divIcon({className:"",iconSize:[0,0],
-      html:`<div class="mk">${ic.startsWith("<")||!ic?ic:`<i>${ic}</i>`}<b style="background:${col}">${val}</b><span>${esc(c.label)}</span></div>`})}).addTo(layer);
-    m.on("click",()=>{ loadWeather(c.label+", 대한민국",c.lat,c.lon); out.scrollIntoView({behavior:"smooth"}); });
+    feats.push({type:"Feature",properties:{i,h,color:col},geometry:{type:"Polygon",coordinates:[[
+      [c.lon-HALF,c.lat-HALF],[c.lon+HALF,c.lat-HALF],[c.lon+HALF,c.lat+HALF],[c.lon-HALF,c.lat+HALF],[c.lon-HALF,c.lat-HALF]]]}});
+    const el=document.createElement("div");
+    el.className="mk";
+    el.innerHTML=`${ic.startsWith("<")||!ic?ic:`<i>${ic}</i>`}<b style="background:${col}">${val}</b><span>${esc(c.label)}</span>`;
+    el.onclick=()=>openCity(c);
+    markers.push(new maplibregl.Marker({element:el,anchor:"bottom"}).setLngLat([c.lon,c.lat]).addTo(map));
   });
+  map.getSource("cols").setData({type:"FeatureCollection",features:feats});
 }
 async function loadOverview(){
   if(!map) return;
   const lat=LOCAL.map(c=>c.lat).join(","), lon=LOCAL.map(c=>c.lon).join(",");
   const arr=x=>Array.isArray(x)?x:[x];
   try{
+    let cached=null; try{ cached=JSON.parse(localStorage.getItem("ov")||"null"); }catch{}
+    if(cached && Date.now()-cached.t<10*60*1000){
+      wData=cached.w; aData=cached.a; drawMarkers();
+      $("mapinfo").textContent="전국 "+wData.length+"개 지역 · "+new Date(cached.t).toLocaleTimeString("ko-KR")+" 갱신";
+      return;
+    }
     const [w,a]=await Promise.all([
       fetch("https://api.open-meteo.com/v1/forecast?"+new URLSearchParams({latitude:lat,longitude:lon,current:"temperature_2m,weather_code",timezone:"auto"})).then(r=>r.ok?r.json():Promise.reject()),
       fetch("https://air-quality-api.open-meteo.com/v1/air-quality?"+new URLSearchParams({latitude:lat,longitude:lon,current:"pm10,pm2_5",timezone:"auto"})).then(r=>r.ok?r.json():[]).catch(()=>[])
     ]);
     wData=arr(w); aData=arr(a); drawMarkers();
+    if(aData.length) try{ localStorage.setItem("ov",JSON.stringify({t:Date.now(),w:wData,a:aData})); }catch{}
     $("mapinfo").textContent="전국 "+wData.length+"개 지역 · "+new Date().toLocaleTimeString("ko-KR")+" 갱신";
   }catch{ $("mapinfo").textContent="전국 날씨를 불러오지 못했습니다."; }
 }
