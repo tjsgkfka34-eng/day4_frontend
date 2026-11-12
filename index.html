@@ -377,7 +377,14 @@ $("chatform").addEventListener("submit",async e=>{
     if(!r.ok) throw new Error(d.error||("서버 오류 "+r.status+" — Vercel에 배포했거나 vercel dev로 실행해야 동작합니다."));
     addMsg("bot",d.reply,d.trace); history.push({role:"model",text:d.reply});
     if(d.spots?.length) showSpots(d.spots);
-  }catch(err){ wait.remove(); history.pop(); addMsg("bot err",String(err.message||err)); }
+  }catch(err){
+    wait.remove(); history.pop();
+    const local=["file:","http:"].includes(location.protocol)&&["","localhost","127.0.0.1"].includes(location.hostname);
+    addMsg("bot err", err instanceof TypeError
+      ? (local ? "에이전트 서버(/api/chat)에 연결할 수 없습니다. 이 파일은 로컬에서 열려 있어서 서버 함수가 없습니다. 배포된 Vercel 주소(https://….vercel.app)로 접속하거나 터미널에서 'vercel dev'로 실행하세요."
+               : "서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+      : String(err.message||err));
+  }
   $("csend").disabled=false;
 });
 

@@ -1,5 +1,5 @@
 // Vercel 서버리스 함수: Gemini 함수 호출(tool calling) 에이전트.
-// 환경변수: GEMINI_API_KEY (필수), GEMINI_MODEL (선택, 기본 gemini-2.5-flash)
+// 환경변수: GEMINI_API_KEY (필수), GEMINI_MODEL (선택, 기본 gemini-3.8-flash)
 const { impl, declarations } = require("./_tools");
 const { gemini } = require("./_gemini");
 
