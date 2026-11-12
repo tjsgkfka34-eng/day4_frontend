@@ -315,30 +315,48 @@ function drawMarkers(){
       .addTo(layer).on("click",()=>openCity(c));
   });
 }
-async function loadOverview(){
+// 날씨·대기질은 따로 가져온다. Open-Meteo는 좌표 1개 = 호출 1건으로 세므로(40곳 = 40건),
+// 날씨는 10분, 대기질은 60분 캐시하고 대기질은 미세먼지 탭을 눌렀을 때만 요청한다.
+const arr=x=>Array.isArray(x)?x:[x];
+const coords=()=>({latitude:LOCAL.map(c=>c.lat).join(","),longitude:LOCAL.map(c=>c.lon).join(",")});
+const cacheGet=(k,ttl)=>{ try{ const c=JSON.parse(localStorage.getItem(k)||"null"); return c&&Date.now()-c.t<ttl?c:null; }catch{ return null; } };
+const cacheSet=(k,d)=>{ try{ localStorage.setItem(k,JSON.stringify({t:Date.now(),d})); }catch{} };
+const stamp=t=>new Date(t).toLocaleTimeString("ko-KR");
+let airMsg="";
+
+async function loadWeatherOverview(){
   if(!map) return;
-  const lat=LOCAL.map(c=>c.lat).join(","), lon=LOCAL.map(c=>c.lon).join(",");
-  const arr=x=>Array.isArray(x)?x:[x];
+  const c=cacheGet("ovw",10*60*1000);
+  if(c){ wData=c.d; drawMarkers(); $("mapinfo").textContent="전국 "+wData.length+"개 지역 · "+stamp(c.t)+" 갱신"; return; }
   try{
-    let cached=null; try{ cached=JSON.parse(localStorage.getItem("ov")||"null"); }catch{}
-    if(cached && Date.now()-cached.t<10*60*1000){
-      wData=cached.w; aData=cached.a; drawMarkers();
-      $("mapinfo").textContent="전국 "+wData.length+"개 지역 · "+new Date(cached.t).toLocaleTimeString("ko-KR")+" 갱신";
-      return;
-    }
-    const [w,a]=await Promise.all([
-      fetch("https://api.open-meteo.com/v1/forecast?"+new URLSearchParams({latitude:lat,longitude:lon,current:"temperature_2m,weather_code",timezone:"auto"})).then(r=>r.ok?r.json():Promise.reject()),
-      fetch("https://air-quality-api.open-meteo.com/v1/air-quality?"+new URLSearchParams({latitude:lat,longitude:lon,current:"pm10,pm2_5",timezone:"auto"})).then(r=>r.ok?r.json():[]).catch(()=>[])
-    ]);
-    wData=arr(w); aData=arr(a); drawMarkers();
-    if(aData.length) try{ localStorage.setItem("ov",JSON.stringify({t:Date.now(),w:wData,a:aData})); }catch{}
-    $("mapinfo").textContent="전국 "+wData.length+"개 지역 · "+new Date().toLocaleTimeString("ko-KR")+" 갱신";
-  }catch{ $("mapinfo").textContent="전국 날씨를 불러오지 못했습니다."; }
+    const r=await fetch("https://api.open-meteo.com/v1/forecast?"+new URLSearchParams({...coords(),current:"temperature_2m,weather_code",timezone:"auto"}));
+    if(!r.ok) throw new Error(r.status);
+    wData=arr(await r.json()); cacheSet("ovw",wData); drawMarkers();
+    $("mapinfo").textContent="전국 "+wData.length+"개 지역 · "+stamp(Date.now())+" 갱신";
+  }catch(e){ $("mapinfo").textContent=e.message==="429"?"날씨 서버 요청 한도 초과 — 잠시 후 새로고침해 주세요.":"전국 날씨를 불러오지 못했습니다."; }
 }
-$("modes").addEventListener("click",e=>{
+async function loadAir(){
+  if(aData.length) return true;
+  const c=cacheGet("ova",60*60*1000);
+  if(c){ aData=c.d; return true; }
+  try{
+    $("mapinfo").textContent="전국 대기질 불러오는 중…";
+    const r=await fetch("https://air-quality-api.open-meteo.com/v1/air-quality?"+new URLSearchParams({...coords(),current:"pm10,pm2_5",timezone:"auto"}));
+    if(!r.ok) throw new Error(r.status);
+    aData=arr(await r.json()); cacheSet("ova",aData); return true;
+  }catch(e){
+    $("mapinfo").textContent=e.message==="429"?"미세먼지 서버 요청 한도 초과(429) — 잠시 후 다시 눌러 주세요.":"미세먼지 정보를 불러오지 못했습니다.";
+    return false;
+  }
+}
+$("modes").addEventListener("click",async e=>{
   const b=e.target.closest("button"); if(!b) return;
   mode=b.dataset.m;
   document.querySelectorAll("#modes button").forEach(x=>x.classList.toggle("on",x===b));
+  if(mode!=="weather"){
+    if(!await loadAir()){ mode="weather"; document.querySelectorAll("#modes button").forEach(x=>x.classList.toggle("on",x.dataset.m==="weather")); return; }
+    $("mapinfo").textContent="전국 "+LOCAL.length+"개 지역 · 대기질은 모델 추정값";
+  }
   drawMarkers();
 });
 // ---- AI 에이전트 (Vercel 서버리스 /api/chat → Gemini 함수 호출) ----
@@ -389,7 +407,7 @@ $("chatform").addEventListener("submit",async e=>{
   $("csend").disabled=false;
 });
 
-if(initMap()){ loadOverview(); setInterval(loadOverview, 10*60*1000); }
+if(initMap()){ loadWeatherOverview(); setInterval(loadWeatherOverview, 10*60*1000); }
 
 loadWeather("서울", 37.5665, 126.978);
 </script>
