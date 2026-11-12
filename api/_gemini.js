@@ -10,7 +10,7 @@ async function callModel(model, body, deadline) {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(Math.min(20000, left)),   // 남은 시간 안에서만 기다림
+    signal: AbortSignal.timeout(Math.min(15000, left)),   // 남은 시간 안에서만 기다림
   });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
@@ -49,7 +49,7 @@ async function tryModel(model, body, attempts, deadline) {
     catch (e) {
       last = e;
       if (e.deadline) throw e;
-      if (e.name === "TimeoutError") e.status = 503;
+      if (e.name === "TimeoutError") { e.status = 503; break; }   // 멈춘 모델은 같은 모델로 재시도하지 않고 바로 다음 모델로
       if (!RETRYABLE.has(e.status) && e.status !== 404) throw e;   // 키 오류·잘못된 요청은 재시도 무의미
       if (e.status === 404) break;                                  // 없는 모델은 바로 포기
       if (i < attempts - 1) await sleep(800 * 2 ** i);
