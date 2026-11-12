@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>실시간 날씨 - Open-Meteo</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --text:#f1f5f9; --muted:#94a3b8; --accent:#38bdf8; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,"Malgun Gothic",sans-serif; background:linear-gradient(160deg,#0f172a,#1e3a5f); color:var(--text); min-height:100vh; display:flex; justify-content:center; padding:24px 16px; }
+  main { width:100%; max-width:560px; }
+  h1 { font-size:1.4rem; margin:0 0 16px; }
+  form { display:flex; gap:8px; margin-bottom:12px; }
+  input { flex:1; padding:12px; border-radius:10px; border:1px solid #334155; background:var(--card); color:var(--text); font-size:1rem; }
+  button { padding:12px 16px; border:0; border-radius:10px; background:var(--accent); color:#0f172a; font-weight:700; cursor:pointer; }
+  button.sub { background:var(--card); color:var(--text); border:1px solid #334155; }
+  .sw { position:relative; flex:1; }
+  .sw input { width:100%; }
+  #sug { position:absolute; left:0; right:0; top:100%; margin:4px 0 0; padding:4px; list-style:none; background:var(--card); border:1px solid #334155; border-radius:10px; z-index:10; max-height:300px; overflow:auto; display:none; box-shadow:0 8px 24px #0008; }
+  #sug li { padding:8px 10px; border-radius:8px; cursor:pointer; display:flex; justify-content:space-between; gap:8px; }
+  #sug li small { color:var(--muted); }
+  #sug li.on, #sug li:hover { background:#334155; }
+  #map { height:520px; border-radius:16px; margin-bottom:16px; background:var(--card); }
+  .mk { display:flex; flex-direction:column; align-items:center; transform:translate(-50%,-50%); font-size:11px; font-weight:700; line-height:1.1; white-space:nowrap; }
+  .mk b { padding:2px 6px; border-radius:10px; color:#0f172a; font-size:12px; box-shadow:0 1px 4px #0006; }
+  .mk i { font-style:normal; font-size:18px; }
+  .mk span { color:#0f172a; text-shadow:0 0 3px #fff,0 0 3px #fff; }
+  #map.lo .mk span, #map.lo .mk i { display:none; }
+  .modes { display:flex; gap:8px; margin-bottom:8px; }
+  .modes button { flex:1; background:var(--card); color:var(--text); border:1px solid #334155; font-weight:600; }
+  .modes button.on { background:var(--accent); color:#0f172a; border-color:var(--accent); }
+  .mapbar { display:flex; justify-content:space-between; color:var(--muted); font-size:.8rem; margin:-8px 4px 12px; }
+  .cities { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+  .cities button { padding:6px 12px; font-weight:500; font-size:.85rem; }
+  .card { background:var(--card); border-radius:16px; padding:20px; margin-bottom:16px; }
+  .now { text-align:center; }
+  .place { color:var(--muted); font-size:.95rem; }
+  .icon { font-size:4rem; line-height:1.2; }
+  .temp { font-size:3.4rem; font-weight:700; }
+  .desc { color:var(--muted); margin-bottom:8px; }
+  .grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:16px; text-align:left; }
+  .grid div { background:#0f172a66; border-radius:10px; padding:10px 12px; }
+  .grid small { display:block; color:var(--muted); font-size:.75rem; }
+  .day { display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid #334155; }
+  .day:last-child { border:0; }
+  .day span:first-child { width:70px; }
+  .msg { text-align:center; color:var(--muted); padding:20px; }
+  .err { color:#fca5a5; }
+  .updated { text-align:center; color:var(--muted); font-size:.75rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🌤 실시간 날씨</h1>
+  <form id="form">
+    <div class="sw"><input id="q" placeholder="지역 이름 (예: 수, 서울, 제주)" autocomplete="off"><ul id="sug"></ul></div>
+    <button type="submit">검색</button>
+    <button type="button" class="sub" id="loc" title="내 위치">📍</button>
+  </form>
+  <div class="cities" id="cities"></div>
+  <div class="modes" id="modes"><button data-m="weather" class="on">🌡 날씨</button><button data-m="pm10">😷 미세먼지 PM10</button><button data-m="pm25">🔬 초미세 PM2.5</button></div>
+  <div id="map"></div>
+  <div class="mapbar"><span id="mapinfo">전국 날씨 불러오는 중…</span><span>마커를 누르면 상세 날씨</span></div>
+  <div id="out"><div class="msg">도시를 검색하세요.</div></div>
+</main>
+
+<script>
+const WMO = {
+  0:["☀️","맑음"],1:["🌤","대체로 맑음"],2:["⛅","구름 조금"],3:["☁️","흐림"],
+  45:["🌫","안개"],48:["🌫","서리 안개"],
+  51:["🌦","약한 이슬비"],53:["🌦","이슬비"],55:["🌧","강한 이슬비"],
+  56:["🌧","어는 이슬비"],57:["🌧","강한 어는 이슬비"],
+  61:["🌧","약한 비"],63:["🌧","비"],65:["🌧","강한 비"],
+  66:["🌧","어는 비"],67:["🌧","강한 어는 비"],
+  71:["🌨","약한 눈"],73:["🌨","눈"],75:["❄️","강한 눈"],77:["❄️","싸락눈"],
+  80:["🌦","약한 소나기"],81:["🌧","소나기"],82:["⛈","강한 소나기"],
+  85:["🌨","약한 눈보라"],86:["❄️","강한 눈보라"],
+  95:["⛈","뇌우"],96:["⛈","우박 동반 뇌우"],99:["⛈","강한 우박 뇌우"]
+};
+const wmo = c => WMO[c] || ["❓","알 수 없음"];
+const $ = id => document.getElementById(id);
+const out = $("out");
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+const PRESETS = [["서울",37.5665,126.978],["부산",35.1796,129.0756],["제주",33.4996,126.5312],["도쿄",35.6762,139.6503],["뉴욕",40.7128,-74.006]];
+PRESETS.forEach(([n,la,lo]) => {
+  const b = document.createElement("button");
+  b.className = "sub"; b.textContent = n;
+  b.onclick = () => loadWeather(n, la, lo);
+  $("cities").appendChild(b);
+});
+
+const LOCAL = [
+ ["서울",37.5665,126.978],["부산",35.1796,129.0756],["인천",37.4563,126.7052],["대구",35.8714,128.6014],
+ ["대전",36.3504,127.3845],["광주",35.1595,126.8526],["울산",35.5384,129.3114],["세종",36.48,127.289],
+ ["수원",37.2636,127.0286],["성남",37.4201,127.1262],["고양",37.6584,126.832],["용인",37.2411,127.1776],
+ ["안산",37.3219,126.8309],["안양",37.3943,126.9568],["파주",37.76,126.78],["평택",36.9921,127.1129],
+ ["춘천",37.8813,127.7298],["강릉",37.7519,128.8761],["속초",38.207,128.5918],["원주",37.3422,127.9202],
+ ["청주",36.6424,127.489],["천안",36.8151,127.1139],["전주",35.8242,127.148],["군산",35.9676,126.7369],
+ ["목포",34.8118,126.3922],["여수",34.7604,127.6622],["순천",34.9506,127.4872],["포항",36.019,129.3435],
+ ["경주",35.8562,129.2247],["안동",36.5684,128.7294],["구미",36.1195,128.3446],["창원",35.2279,128.6811],
+ ["김해",35.2285,128.8894],["진주",35.18,128.1076],["제주",33.4996,126.5312],["서귀포",33.2541,126.56],
+ ["울릉",37.4845,130.9057],["독도",37.2417,131.8647],["평창",37.3705,128.39],["태안",36.7456,126.2978]
+].map(([n,la,lo])=>({label:n,sub:"대한민국",lat:la,lon:lo,local:true}));
+
+// 한글 → 로마자(국어의 로마자 표기법, 단순형)
+const L_INI=["g","kk","n","d","tt","r","m","b","pp","s","ss","","j","jj","ch","k","t","p","h"];
+const L_VOW=["a","ae","ya","yae","eo","e","yeo","ye","o","wa","wae","oe","yo","u","wo","we","wi","yu","eu","ui","i"];
+const L_FIN=["","k","k","k","n","n","n","t","l","k","m","p","l","l","p","l","m","p","p","t","t","ng","t","t","k","t","p","t"];
+function romanize(t){
+  return [...t].map(ch=>{
+    const c=ch.charCodeAt(0)-0xAC00;
+    if(c<0||c>11171) return ch;
+    return L_INI[Math.floor(c/588)]+L_VOW[Math.floor(c%588/28)]+L_FIN[c%28];
+  }).join("");
+}
+const hasHangul = t => /[\uAC00-\uD7A3]/.test(t);
+
+async function geoFetch(name){
+  const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=10&language=ko`);
+  if(!r.ok) return [];
+  return (await r.json()).results || [];
+}
+
+async function suggest(q){
+  q = q.trim();
+  if(!q) return [];
+  const loc = LOCAL.filter(c=>c.label.startsWith(q));
+  const seen = new Set(loc.map(c=>c.label));
+  let remote = [];
+  if(q.length>=2){
+    try{
+      remote = await geoFetch(q);
+      if(hasHangul(q)){
+        // 한글로 결과가 부족하면 로마자로 변환해 영어로 재검색
+        let rom = romanize(q);
+        const tries = [rom];
+        if(/[시군구]$/.test(q) && q.length>2) tries.push(romanize(q.slice(0,-1)));
+        for(const t of tries){
+          if(remote.length>=5) break;
+          remote = remote.concat(await geoFetch(t));
+        }
+      }
+    }catch{}
+  }
+  const ids=new Set();
+  const rem = remote.filter(p=>!ids.has(p.id)&&ids.add(p.id))
+    .sort((a,b)=>(b.country_code==="KR")-(a.country_code==="KR"))
+    .map(p=>({label:p.name,sub:[p.admin1,p.country].filter(Boolean).join(", "),lat:p.latitude,lon:p.longitude}))
+    .filter(c=>!(c.sub.startsWith("대한민국")&&seen.has(c.label)&&false));
+  return loc.concat(rem).slice(0,10);
+}
+
+const sug=$("sug"), qi=$("q");
+let items=[], idx=-1, timer, seq=0;
+function showSug(){
+  sug.innerHTML = items.map((c,i)=>`<li data-i="${i}" class="${i===idx?"on":""}"><span>${esc(c.label)}</span><small>${esc(c.sub)}</small></li>`).join("");
+  sug.style.display = items.length ? "block" : "none";
+}
+function pick(c){
+  qi.value=c.label; items=[]; showSug();
+  loadWeather([c.label,c.sub].filter(Boolean).join(", "), c.lat, c.lon);
+}
+qi.addEventListener("input",()=>{
+  clearTimeout(timer);
+  const my=++seq, v=qi.value;
+  const quick = LOCAL.filter(c=>c.label.startsWith(v.trim()));
+  items = v.trim()? quick : []; idx=-1; showSug();
+  timer=setTimeout(async()=>{
+    const r=await suggest(v);
+    if(my!==seq) return;
+    items=r; idx=-1; showSug();
+  },250);
+});
+qi.addEventListener("keydown",e=>{
+  if(e.key==="ArrowDown"){e.preventDefault(); idx=Math.min(idx+1,items.length-1); showSug();}
+  else if(e.key==="ArrowUp"){e.preventDefault(); idx=Math.max(idx-1,0); showSug();}
+  else if(e.key==="Escape"){items=[]; showSug();}
+});
+sug.addEventListener("mousedown",e=>{
+  const li=e.target.closest("li"); if(li){e.preventDefault(); pick(items[+li.dataset.i]);}
+});
+document.addEventListener("click",e=>{ if(!e.target.closest(".sw")){items=[];showSug();} });
+
+async function loadWeather(label, lat, lon) {
+  out.innerHTML = '<div class="msg">불러오는 중…</div>';
+  try {
+    const url = "https://api.open-meteo.com/v1/forecast?" + new URLSearchParams({
+      latitude: lat, longitude: lon, timezone: "auto", forecast_days: 5,
+      current: "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m",
+      daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+    });
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("날씨 데이터를 가져오지 못했습니다.");
+    const wd = await r.json();
+    let air = null;
+    try {
+      const ar = await fetch("https://air-quality-api.open-meteo.com/v1/air-quality?" + new URLSearchParams({latitude:lat, longitude:lon, timezone:"auto", current:"pm10,pm2_5"}));
+      if (ar.ok) air = (await ar.json()).current;
+    } catch {}
+    render(label, wd, air);
+  } catch (e) {
+    out.innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+  }
+}
+
+function render(label, d, air) {
+  const c = d.current, u = d.current_units, dl = d.daily;
+  const [ic, desc] = wmo(c.weather_code);
+  const days = dl.time.map((t, i) => {
+    const [di] = wmo(dl.weather_code[i]);
+    const name = i === 0 ? "오늘" : new Date(t + "T00:00").toLocaleDateString("ko-KR", {weekday:"short", month:"numeric", day:"numeric"});
+    return `<div class="day"><span>${esc(name)}</span><span>${di} ☔${dl.precipitation_probability_max[i] ?? "-"}%</span>
+      <span>${Math.round(dl.temperature_2m_min[i])}° / <b>${Math.round(dl.temperature_2m_max[i])}°</b></span></div>`;
+  }).join("");
+  out.innerHTML = `
+    <div class="card now">
+      <div class="place">📍 ${esc(label)}</div>
+      <div class="icon">${ic}</div>
+      <div class="temp">${c.temperature_2m}${u.temperature_2m}</div>
+      <div class="desc">${desc}</div>
+      <div class="grid">
+        <div><small>체감온도</small>${c.apparent_temperature}${u.apparent_temperature}</div>
+        <div><small>습도</small>${c.relative_humidity_2m}${u.relative_humidity_2m}</div>
+        <div><small>풍속</small>${c.wind_speed_10m} ${u.wind_speed_10m}</div>
+        <div><small>강수량</small>${c.precipitation} ${u.precipitation}</div>
+        ${air ? `<div><small>미세먼지 PM10</small>${air.pm10 ?? "-"} ㎍/㎥ · <b style="color:${gPM10(air.pm10)[1]}">${gPM10(air.pm10)[0]}</b></div>
+        <div><small>초미세 PM2.5</small>${air.pm2_5 ?? "-"} ㎍/㎥ · <b style="color:${gPM25(air.pm2_5)[1]}">${gPM25(air.pm2_5)[0]}</b></div>` : ""}
+      </div>
+    </div>
+    <div class="card">${days}</div>
+    <div class="updated">기준 시각 ${esc(c.time.replace("T"," "))} · 데이터: Open-Meteo (날씨·대기질 모델)</div>`;
+}
+
+$("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  if(idx>=0 && items[idx]) return pick(items[idx]);
+  const q = qi.value.trim();
+  if (!q) return;
+  out.innerHTML = '<div class="msg">검색 중…</div>';
+  const r = items.length ? items : await suggest(q);
+  if (r.length) pick(r[0]);
+  else out.innerHTML = `<div class="msg err">'${esc(q)}' 을(를) 찾을 수 없습니다.</div>`;
+});
+
+$("loc").onclick = () => {
+  if (!navigator.geolocation) return out.innerHTML = '<div class="msg err">위치 기능을 지원하지 않습니다.</div>';
+  navigator.geolocation.getCurrentPosition(
+    p => loadWeather("내 위치", p.coords.latitude, p.coords.longitude),
+    () => out.innerHTML = '<div class="msg err">위치 권한이 거부되었습니다.</div>');
+};
+
+
+// ---- 전국 날씨 지도 ----
+function tempColor(t){
+  if(t<=0) return "#93c5fd"; if(t<10) return "#7dd3fc"; if(t<18) return "#86efac";
+  if(t<25) return "#fde047"; if(t<30) return "#fdba74"; return "#fca5a5";
+}
+let map, layer;
+function initMap(){
+  if(typeof L==="undefined"){ $("map").innerHTML='<div class="msg err">지도 라이브러리를 불러오지 못했습니다.</div>'; return false; }
+  map = L.map("map",{zoomControl:true}).fitBounds([[33.0,126.0],[38.6,131.9]]);
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",{maxZoom:12,attribution:"Tiles © Esri"}).addTo(map);
+  layer = L.layerGroup().addTo(map);
+  const zc=()=>$("map").classList.toggle("lo", map.getZoom()<8);
+  map.on("zoomend",zc); zc();
+  return true;
+}
+const GRADES=[["좋음","#86efac"],["보통","#fde047"],["나쁨","#fdba74"],["매우나쁨","#fca5a5"]];
+function grade(v,cut){ if(v==null) return [ "-","#cbd5e1"]; const i=v<=cut[0]?0:v<=cut[1]?1:v<=cut[2]?2:3; return GRADES[i]; }
+const gPM10=v=>grade(v,[30,80,150]), gPM25=v=>grade(v,[15,35,75]);
+let wData=[], aData=[], mode="weather";
+
+function drawMarkers(){
+  if(!layer||!wData.length) return;
+  layer.clearLayers();
+  LOCAL.forEach((c,i)=>{
+    const w=wData[i]?.current, a=aData[i]?.current;
+    if(!w) return;
+    let ic, val, col;
+    if(mode==="weather"){ ic=wmo(w.weather_code)[0]; val=Math.round(w.temperature_2m)+"°"; col=tempColor(w.temperature_2m); }
+    else{
+      const v=a?.[mode==="pm10"?"pm10":"pm2_5"], g=(mode==="pm10"?gPM10:gPM25)(v);
+      ic=""; val=v==null?"-":Math.round(v); col=g[1];
+      if(v!=null) ic=`<i style="font-size:11px">${g[0]}</i>`;
+    }
+    const m=L.marker([c.lat,c.lon],{icon:L.divIcon({className:"",iconSize:[0,0],
+      html:`<div class="mk">${ic.startsWith("<")||!ic?ic:`<i>${ic}</i>`}<b style="background:${col}">${val}</b><span>${esc(c.label)}</span></div>`})}).addTo(layer);
+    m.on("click",()=>{ loadWeather(c.label+", 대한민국",c.lat,c.lon); out.scrollIntoView({behavior:"smooth"}); });
+  });
+}
+async function loadOverview(){
+  if(!map) return;
+  const lat=LOCAL.map(c=>c.lat).join(","), lon=LOCAL.map(c=>c.lon).join(",");
+  const arr=x=>Array.isArray(x)?x:[x];
+  try{
+    const [w,a]=await Promise.all([
+      fetch("https://api.open-meteo.com/v1/forecast?"+new URLSearchParams({latitude:lat,longitude:lon,current:"temperature_2m,weather_code",timezone:"auto"})).then(r=>r.ok?r.json():Promise.reject()),
+      fetch("https://air-quality-api.open-meteo.com/v1/air-quality?"+new URLSearchParams({latitude:lat,longitude:lon,current:"pm10,pm2_5",timezone:"auto"})).then(r=>r.ok?r.json():[]).catch(()=>[])
+    ]);
+    wData=arr(w); aData=arr(a); drawMarkers();
+    $("mapinfo").textContent="전국 "+wData.length+"개 지역 · "+new Date().toLocaleTimeString("ko-KR")+" 갱신";
+  }catch{ $("mapinfo").textContent="전국 날씨를 불러오지 못했습니다."; }
+}
+$("modes").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  mode=b.dataset.m;
+  document.querySelectorAll("#modes button").forEach(x=>x.classList.toggle("on",x===b));
+  drawMarkers();
+});
+if(initMap()){ loadOverview(); setInterval(loadOverview, 10*60*1000); }
+
+loadWeather("서울", 37.5665, 126.978);
+</script>
+</body>
+</html>
