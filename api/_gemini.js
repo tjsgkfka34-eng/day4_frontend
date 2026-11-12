@@ -51,7 +51,7 @@ async function tryModel(model, body, attempts, deadline) {
       if (e.deadline) throw e;
       if (e.name === "TimeoutError") { e.status = 503; break; }   // 멈춘 모델은 같은 모델로 재시도하지 않고 바로 다음 모델로
       if (!RETRYABLE.has(e.status) && e.status !== 404) throw e;   // 키 오류·잘못된 요청은 재시도 무의미
-      if (e.status === 404) break;                                  // 없는 모델은 바로 포기
+      if (e.status === 404 || e.status === 429) break;              // 없는 모델·한도 초과는 같은 모델로 재시도해도 한도만 낭비 → 다음 모델로
       if (i < attempts - 1) await sleep(800 * 2 ** i);
     }
   }
